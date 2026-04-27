@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -37,6 +38,13 @@ func GetMovie(url string) (*Movie, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-API-KEY", KP_TOKEN)
 
+	q := req.URL.Query()
+	q.Add("notNullFields", "name")
+	q.Add("notNullFields", "poster.url")
+	q.Add("notNullFields", "description")
+	q.Add("notNullFields", "rating.kp")
+	req.URL.RawQuery = q.Encode()
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -48,12 +56,31 @@ func GetMovie(url string) (*Movie, error) {
 	body, _ := io.ReadAll(resp.Body)
 
 	var raw map[string]interface{}
-	json.Unmarshal(body, &raw)
+	if err := json.Unmarshal(body, &raw); err != nil {
+		log.Fatal(err)
+	}
+	
+	movie := &Movie{}
 
-	movie := &Movie{
-		Name: raw["name"].(string),
-		Year: int(raw["year"].(float64)),
-		Description: raw["description"].(string),
+	name := "-"
+
+	if val, ok := raw["name"].(string); ok && val != "" {
+		name = val
+	} else if val, ok := raw["alternativeName"].(string); ok && val != "" {
+		name = val
+	}
+	movie.Name = name
+
+	if year, ok := raw["year"].(float64); ok {
+		movie.Year = int(year)
+	}
+
+	if desc, ok := raw["description"].(string); ok {
+		movie.Description = desc
+	}
+
+	if id, ok := raw["id"].(float64); ok {
+		movie.ID = int(id)
 	}
 
 	return movie, nil
@@ -93,11 +120,42 @@ func main() {
 					movie.Description,
 				)
 
+				button := tgbotapi.NewInlineKeyboardButtonData(
+					"💿 Добавить в коллекцию", 
+					fmt.Sprintf("add_random %d", movie.ID),
+				)
+
+				keyboard := tgbotapi.NewInlineKeyboardMarkup(
+					tgbotapi.NewInlineKeyboardRow(button),
+				)
+
 				msg := tgbotapi.NewMessage(chatID, msgText)
+				msg.ReplyMarkup = keyboard
+
 				bot.Send(msg)
 			}
 		}
-		//if update.CallbackQuery != nil {
-		//}
+		if update.CallbackQuery != nil {
+			data := update.CallbackQuery.Data
+
+			parts := strings.Split(data, " ")
+			if len(parts) < 2 {
+				return
+			}
+			action := parts[0]
+
+			if action == "add_random" {
+				movieID := parts[1]
+
+				msg := tgbotapi.NewMessage(
+					update.CallbackQuery.Message.Chat.ID,
+					"Фильм добавлен: "+movieID,
+				)
+				bot.Send(msg)
+			}
+
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+			bot.Request(callback)
+		}
 	}
 }
