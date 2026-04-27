@@ -1,9 +1,19 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+)
+
+const (
+	KP_TOKEN = "66XDW7D-CT0MF9Z-GZB7XYF-65WAXFN"
+	TG_BOT_TOKEN = "8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY"
+	URL_RANDOM = "https://api.poiskkino.dev/v1.4/movie/random"
 )
 
 type UserData struct {
@@ -11,10 +21,46 @@ type UserData struct {
 	Name  string
 }
 
-func main() {
-	users := make(map[int64]*UserData)
+type Movie struct {
+	Name        string
+	Rating      float64
+	Year        int
+	Country     string
+	Genre       string
+	Description string
+	Poster      string
+	ID          int
+	Type        string
+}
 
-	bot, err := tgbotapi.NewBotAPI("8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY")
+func GetMovie(url string) (*Movie, error) {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("X-API-KEY", KP_TOKEN)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var raw map[string]interface{}
+	json.Unmarshal(body, &raw)
+
+	movie := &Movie{
+		Name: raw["name"].(string),
+		Year: int(raw["year"].(float64)),
+		Description: raw["description"].(string),
+	}
+
+	return movie, nil
+}
+
+func main() {
+	bot, err := tgbotapi.NewBotAPI(TG_BOT_TOKEN)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -30,50 +76,28 @@ func main() {
 
 	for update := range updates {
 		if update.Message != nil {
-			text := update.Message.Text
 			chatID := update.Message.Chat.ID
-			user, exists := users[chatID]
-			if !exists {
-				user = &UserData{}
-				users[chatID] = user
-			}
+			text := update.Message.Text
 
-			if text == "/start" {
-				user.State = "waiting_name"
+			if text == "/random" {
+				movie, err := GetMovie(URL_RANDOM)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
+					continue
+				}
 
-				msg := tgbotapi.NewMessage(chatID, "Как тебя зовут?")
+				msgText := fmt.Sprintf(
+					"%s\nГод: %d\n%s",
+					movie.Name,
+					movie.Year,
+					movie.Description,
+				)
+
+				msg := tgbotapi.NewMessage(chatID, msgText)
 				bot.Send(msg)
-				continue
 			}
-
-			if user.State == "waiting_name" {
-				user.Name = text
-				user.State = "waiting_age"
-
-				msg := tgbotapi.NewMessage(chatID, "Сколько тебе лет?")
-				bot.Send(msg)
-				continue
-			}
-
-			if user.State == "waiting_age" {
-				msg := tgbotapi.NewMessage(chatID, "Тебя зовут "+user.Name+", тебе "+text)
-				bot.Send(msg)
-
-				delete(users, chatID)
-				continue
-			}
-
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Ты написал: "+update.Message.Text)
-			bot.Send(msg)
 		}
-		if update.CallbackQuery != nil {
-			data := update.CallbackQuery.Data
-
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Ты нажал: "+data)
-			bot.Send(msg)
-
-			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-			bot.Request(callback)
-		}
+		//if update.CallbackQuery != nil {
+		//}
 	}
 }
