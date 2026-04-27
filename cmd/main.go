@@ -6,21 +6,19 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/moritys/nosewiper/internal/db"
 )
 
 const (
 	KP_TOKEN = "66XDW7D-CT0MF9Z-GZB7XYF-65WAXFN"
 	TG_BOT_TOKEN = "8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY"
+
 	URL_RANDOM = "https://api.poiskkino.dev/v1.4/movie/random"
 )
-
-type UserData struct {
-	State string
-	Name  string
-}
 
 type Movie struct {
 	Name        string
@@ -86,7 +84,53 @@ func GetMovie(url string) (*Movie, error) {
 	return movie, nil
 }
 
+func AddMovie(chatID int64, movieID int) error {
+	query := `
+	INSERT INTO user_movies (chat_id, movie_id)
+	VALUES (?, ?)
+	`
+	_, err := db.DB.Exec(query, chatID, movieID)
+	return err
+}
+
+func DeleteMovie(chatID int64, movieID int) error {
+	query := `
+	DELETE FROM user_movies
+	WHERE chat_id = ? AND movie_id = ?
+	`
+	_, err := db.DB.Exec(query, chatID, movieID)
+	return err
+}
+
+func GetUserMovies(chatID int64) ([]int, error) {
+	query := `
+	SELECT movie_id FROM user_movies
+	WHERE chat_id = ?
+	`
+
+	rows, err := db.DB.Query(query, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var movies []int
+
+	for rows.Next() {
+		var movieID int
+		rows.Scan(&movieID)
+		movies = append(movies, movieID)
+	}
+
+	return movies, nil
+}
+
 func main() {
+	err:= db.InitDB()
+	if err != nil {
+		log.Panic(err)
+	}
+	
 	bot, err := tgbotapi.NewBotAPI(TG_BOT_TOKEN)
 	if err != nil {
 		log.Panic(err)
@@ -145,13 +189,16 @@ func main() {
 			action := parts[0]
 
 			if action == "add_random" {
-				movieID := parts[1]
+				movieID, _ := strconv.Atoi(parts[1])
+				chatID := update.CallbackQuery.Message.Chat.ID
 
-				msg := tgbotapi.NewMessage(
-					update.CallbackQuery.Message.Chat.ID,
-					"Фильм добавлен: "+movieID,
-				)
-				bot.Send(msg)
+				err := AddMovie(chatID, movieID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка при добавлении"))
+					return
+				}
+
+				bot.Send(tgbotapi.NewMessage(chatID, "Фильм добавлен в коллекцию 🎬"))
 			}
 
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
