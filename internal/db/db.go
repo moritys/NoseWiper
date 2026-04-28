@@ -18,7 +18,8 @@ func InitDB() error {
 	CREATE TABLE IF NOT EXISTS user_movies (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		chat_id INTEGER,
-		movie_id INTEGER
+		movie_id INTEGER,
+		UNIQUE(chat_id, movie_id)
 	);`
 
 	_, err = DB.Exec(createTable)

@@ -201,7 +201,17 @@ func main() {
 					return
 				}
 
+				button := tgbotapi.NewInlineKeyboardButtonData(
+					"🛋️ Буду смотреть это, удалить из коллекции",
+					fmt.Sprintf("del_choiced %d", movie.ID),
+				)
+
+				keyboard := tgbotapi.NewInlineKeyboardMarkup(
+					tgbotapi.NewInlineKeyboardRow(button),
+				)
+
 				msg := tgbotapi.NewMessage(chatID, "Твой фильм на сегодня: "+movie.Name)
+				msg.ReplyMarkup = keyboard
 				bot.Send(msg)
 			}
 		}
@@ -213,18 +223,27 @@ func main() {
 				return
 			}
 			action := parts[0]
+			movieID, _ := strconv.Atoi(parts[1])
+			chatID := update.CallbackQuery.Message.Chat.ID
 
 			if action == "add_random" {
-				movieID, _ := strconv.Atoi(parts[1])
-				chatID := update.CallbackQuery.Message.Chat.ID
-
 				err := AddMovie(chatID, movieID)
 				if err != nil {
-					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка при добавлении"))
+					bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже есть в коллекции"))
 					return
 				}
 
 				bot.Send(tgbotapi.NewMessage(chatID, "Фильм добавлен в коллекцию 🎬"))
+			}
+
+			if action == "del_choiced" {
+				err := DeleteMovie(chatID, movieID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка удаления"))
+					return
+				}
+
+				bot.Send(tgbotapi.NewMessage(chatID, "Фильм удалён из коллекции 🎬"))
 			}
 
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
