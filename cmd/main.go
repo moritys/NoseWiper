@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"math/rand"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,7 @@ const (
 	TG_BOT_TOKEN = "8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY"
 
 	URL_RANDOM = "https://api.poiskkino.dev/v1.4/movie/random"
+	URL_GET_MOVIE = "https://api.poiskkino.dev/v1.4/movie/"
 )
 
 type Movie struct {
@@ -32,7 +34,7 @@ type Movie struct {
 	Type        string
 }
 
-func GetMovie(url string) (*Movie, error) {
+func GetMovieFromURL(url string) (*Movie, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-API-KEY", KP_TOKEN)
 
@@ -151,7 +153,7 @@ func main() {
 			text := update.Message.Text
 
 			if text == "/random" {
-				movie, err := GetMovie(URL_RANDOM)
+				movie, err := GetMovieFromURL(URL_RANDOM)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
 					continue
@@ -176,6 +178,30 @@ func main() {
 				msg := tgbotapi.NewMessage(chatID, msgText)
 				msg.ReplyMarkup = keyboard
 
+				bot.Send(msg)
+			}
+			if text == "/wisechoice" {
+				movies, err := GetUserMovies(chatID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка БД"))
+					return
+				}
+
+				if len(movies) == 0 {
+					bot.Send(tgbotapi.NewMessage(chatID, "В коллекции нет фильмов 😔"))
+					return
+				}
+
+				randomIndex := rand.Intn(len(movies))
+				movieID := movies[randomIndex]
+
+				movie, err := GetMovieFromURL(fmt.Sprintf(URL_GET_MOVIE+"%d", movieID))
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
+					return
+				}
+
+				msg := tgbotapi.NewMessage(chatID, "Твой фильм на сегодня: "+movie.Name)
 				bot.Send(msg)
 			}
 		}
