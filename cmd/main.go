@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"math/rand"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -15,22 +15,22 @@ import (
 )
 
 const (
-	KP_TOKEN = "66XDW7D-CT0MF9Z-GZB7XYF-65WAXFN"
+	KP_TOKEN     = "66XDW7D-CT0MF9Z-GZB7XYF-65WAXFN"
 	TG_BOT_TOKEN = "8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY"
 
-	URL_RANDOM = "https://api.poiskkino.dev/v1.4/movie/random"
+	URL_RANDOM    = "https://api.poiskkino.dev/v1.4/movie/random"
 	URL_GET_MOVIE = "https://api.poiskkino.dev/v1.4/movie/"
 )
 
 type Movie struct {
+	ID          int
 	Name        string
-	Rating      float64
 	Year        int
-	Country     string
-	Genre       string
 	Description string
 	Poster      string
-	ID          int
+	Rating      float64
+	Countries   string
+	Genres      string
 	Type        string
 }
 
@@ -47,6 +47,7 @@ func GetMovieFromURL(url string) (*Movie, error) {
 	q.Add("notNullFields", "poster.url")
 	q.Add("notNullFields", "description")
 	q.Add("notNullFields", "rating.kp")
+	q.Add("rating.kp", "6-10")
 	req.URL.RawQuery = q.Encode()
 
 	client := &http.Client{}
@@ -63,7 +64,7 @@ func GetMovieFromURL(url string) (*Movie, error) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		log.Fatal(err)
 	}
-	
+
 	movie := &Movie{}
 
 	name := "-"
@@ -85,6 +86,42 @@ func GetMovieFromURL(url string) (*Movie, error) {
 
 	if id, ok := raw["id"].(float64); ok {
 		movie.ID = int(id)
+	}
+
+	if rating, ok := raw["rating"].(map[string]interface{}); ok {
+		if kp, ok := rating["kp"].(float64); ok {
+			movie.Rating = kp
+		}
+	}
+
+	if genres, ok := raw["genres"].([]interface{}); ok {
+		var list []string
+		for _, g := range genres {
+			if genreMap, ok := g.(map[string]interface{}); ok {
+				if name, ok := genreMap["name"].(string); ok {
+					list = append(list, name)
+				}
+			}
+		}
+		movie.Genres = strings.Join(list, ", ")
+	}
+
+	if countries, ok := raw["countries"].([]interface{}); ok {
+		var list []string
+		for _, c := range countries {
+			if countryMap, ok := c.(map[string]interface{}); ok {
+				if name, ok := countryMap["name"].(string); ok {
+					list = append(list, name)
+				}
+			}
+		}
+		movie.Countries = strings.Join(list, ", ")
+	}
+
+	if poster, ok := raw["poster"].(map[string]interface{}); ok {
+		if url, ok := poster["url"].(string); ok {
+			movie.Poster = url
+		}
 	}
 
 	return movie, nil
@@ -132,13 +169,13 @@ func GetUserMovies(chatID int64) ([]int, error) {
 }
 
 func main() {
-	var users = make(map[int64]*UserState)
+	users := make(map[int64]*UserState)
 
-	err:= db.InitDB()
+	err := db.InitDB()
 	if err != nil {
 		log.Panic(err)
 	}
-	
+
 	bot, err := tgbotapi.NewBotAPI(TG_BOT_TOKEN)
 	if err != nil {
 		log.Panic(err)
@@ -159,7 +196,7 @@ func main() {
 			text := update.Message.Text
 
 			user, exists := users[chatID]
-			
+
 			if !exists {
 				user = &UserState{}
 				users[chatID] = user
@@ -195,13 +232,13 @@ func main() {
 			if text == "/start" {
 				msg := tgbotapi.NewMessage(chatID,
 					"Привет!\n"+
-					"Я помогу выбрать фильм 🎬\n\n"+
-					"Вот что я умею:\n"+
-					"/random — случайные фильмы с Кинопоиска\n"+
-					"/wisechoice — фильм из твоей коллекции\n"+
-					"/add — добавить фильм\n"+
-					"/del — удалить фильм\n"+
-					"Или просто нажми кнопку ниже 👇\n",
+						"Я помогу выбрать фильм 🎬\n\n"+
+						"Вот что я умею:\n"+
+						"/random — случайные фильмы с Кинопоиска\n"+
+						"/wisechoice — фильм из твоей коллекции\n"+
+						"/add — добавить фильм\n"+
+						"/del — удалить фильм\n"+
+						"Или просто нажми кнопку ниже 👇\n",
 				)
 				msg.ReplyMarkup = keyboard
 
@@ -210,12 +247,11 @@ func main() {
 
 			if text == "/about_random" {
 				msg := tgbotapi.NewMessage(chatID,
-        			"Команда /random выбирает фильмы:\n"+
-            		"▸ не из России\n"+
-            		"▸ рейтинг выше 6\n"+
-            		"▸ любые жанры",
-    			)
-    			bot.Send(msg)
+					"Команда /random выбирает фильмы:\n"+
+						"▸ рейтинг выше 6\n"+
+						"▸ любые жанры",
+				)
+				bot.Send(msg)
 			}
 
 			if user.State == "waiting_add" {
@@ -223,25 +259,37 @@ func main() {
 
 				parts := strings.Split(link, "/")
 				if len(parts) < 2 {
-					bot.Send(tgbotapi.NewMessage(chatID, "Неверная ссылка"))
+					bot.Send(tgbotapi.NewMessage(
+						chatID, 
+						"❌ Это не похоже на ссылку с Кинопоиска\n\nПопробуй ещё раз или нажми /cancel",
+					))
 					continue
 				}
 
 				movieIDStr := parts[len(parts)-2]
 				movieID, err := strconv.Atoi(movieIDStr)
 				if err != nil {
-					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось получить ID"))
+					bot.Send(tgbotapi.NewMessage(
+						chatID, 
+						"❌ Не удалось извлечь ID\nПопробуй ещё раз или /cancel",
+					))
 					continue
 				}
 
 				err = AddMovie(chatID, movieID)
 				if err != nil {
-					bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже добавлен или какая-то ошибка"))
+					bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже добавлен"))
 				} else {
 					bot.Send(tgbotapi.NewMessage(chatID, "Фильм добавлен 🎬"))
 				}
 
 				user.State = ""
+				continue
+			}
+
+			if text == "/cancel" {
+				user.State = ""
+				bot.Send(tgbotapi.NewMessage(chatID, "Ок, отменили 👌"))
 				continue
 			}
 
@@ -281,14 +329,17 @@ func main() {
 				}
 
 				msgText := fmt.Sprintf(
-					"%s\nГод: %d\n%s",
+					"*%s*\n`Рейтинг: %.1f`\n\n*Жанр:* %s\n_(%s, %d)_\n----\n%s",
 					movie.Name,
+					movie.Rating,
+					movie.Genres,
+					movie.Countries,
 					movie.Year,
 					movie.Description,
 				)
 
 				button := tgbotapi.NewInlineKeyboardButtonData(
-					"💿 Добавить в коллекцию", 
+					"💿 Добавить в коллекцию",
 					fmt.Sprintf("add_random %d", movie.ID),
 				)
 
@@ -296,11 +347,23 @@ func main() {
 					tgbotapi.NewInlineKeyboardRow(button),
 				)
 
-				msg := tgbotapi.NewMessage(chatID, msgText)
-				msg.ReplyMarkup = keyboard
+				if len(msgText) > 1024 {
+					bot.Send(tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster)))
 
-				bot.Send(msg)
+					msg := tgbotapi.NewMessage(chatID, msgText)
+					msg.ParseMode = "Markdown"
+					msg.ReplyMarkup = keyboard
+					bot.Send(msg)
+				} else {
+					msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster))
+					msg.Caption = msgText
+					msg.ParseMode = "Markdown"
+					msg.ReplyMarkup = keyboard
+
+					bot.Send(msg)
+				}
 			}
+
 			if text == "/wisechoice" {
 				movies, err := GetUserMovies(chatID)
 				if err != nil {
@@ -336,6 +399,7 @@ func main() {
 				bot.Send(msg)
 			}
 		}
+
 		if update.CallbackQuery != nil {
 			data := update.CallbackQuery.Data
 
