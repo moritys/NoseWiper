@@ -34,6 +34,10 @@ type Movie struct {
 	Type        string
 }
 
+type UserState struct {
+	State string
+}
+
 func GetMovieFromURL(url string) (*Movie, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-API-KEY", KP_TOKEN)
@@ -128,6 +132,8 @@ func GetUserMovies(chatID int64) ([]int, error) {
 }
 
 func main() {
+	var users = make(map[int64]*UserState)
+
 	err:= db.InitDB()
 	if err != nil {
 		log.Panic(err)
@@ -151,6 +157,121 @@ func main() {
 		if update.Message != nil {
 			chatID := update.Message.Chat.ID
 			text := update.Message.Text
+
+			user, exists := users[chatID]
+			
+			if !exists {
+				user = &UserState{}
+				users[chatID] = user
+			}
+
+			keyboard := tgbotapi.NewReplyKeyboard(
+				tgbotapi.NewKeyboardButtonRow(
+					tgbotapi.NewKeyboardButton("/random"),
+					tgbotapi.NewKeyboardButton("/wisechoice"),
+				),
+				tgbotapi.NewKeyboardButtonRow(
+					tgbotapi.NewKeyboardButton("/add"),
+					tgbotapi.NewKeyboardButton("/del"),
+				),
+			)
+
+			if text == "/add" {
+				user.State = "waiting_add"
+
+				msg := tgbotapi.NewMessage(chatID, "Отправь ссылку на фильм с Кинопоиска:")
+				bot.Send(msg)
+				continue
+			}
+
+			if text == "/del" {
+				user.State = "waiting_del"
+
+				msg := tgbotapi.NewMessage(chatID, "Отправь ссылку для удаления:")
+				bot.Send(msg)
+				continue
+			}
+
+			if text == "/start" {
+				msg := tgbotapi.NewMessage(chatID,
+					"Привет!\n"+
+					"Я помогу выбрать фильм 🎬\n\n"+
+					"Вот что я умею:\n"+
+					"/random — случайные фильмы с Кинопоиска\n"+
+					"/wisechoice — фильм из твоей коллекции\n"+
+					"/add — добавить фильм\n"+
+					"/del — удалить фильм\n"+
+					"Или просто нажми кнопку ниже 👇\n",
+				)
+				msg.ReplyMarkup = keyboard
+
+				bot.Send(msg)
+			}
+
+			if text == "/about_random" {
+				msg := tgbotapi.NewMessage(chatID,
+        			"Команда /random выбирает фильмы:\n"+
+            		"▸ не из России\n"+
+            		"▸ рейтинг выше 6\n"+
+            		"▸ любые жанры",
+    			)
+    			bot.Send(msg)
+			}
+
+			if user.State == "waiting_add" {
+				link := text
+
+				parts := strings.Split(link, "/")
+				if len(parts) < 2 {
+					bot.Send(tgbotapi.NewMessage(chatID, "Неверная ссылка"))
+					continue
+				}
+
+				movieIDStr := parts[len(parts)-2]
+				movieID, err := strconv.Atoi(movieIDStr)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось получить ID"))
+					continue
+				}
+
+				err = AddMovie(chatID, movieID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже добавлен или какая-то ошибка"))
+				} else {
+					bot.Send(tgbotapi.NewMessage(chatID, "Фильм добавлен 🎬"))
+				}
+
+				user.State = ""
+				continue
+			}
+
+			if user.State == "waiting_del" {
+				link := text
+
+				parts := strings.Split(link, "/")
+				if len(parts) < 2 {
+					bot.Send(tgbotapi.NewMessage(chatID, "Неверная ссылка"))
+					continue
+				}
+
+				movieIDStr := parts[len(parts)-2]
+				movieID, err := strconv.Atoi(movieIDStr)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка ID"))
+					continue
+				}
+
+				err = DeleteMovie(chatID, movieID)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка удаления"))
+					continue
+				} else {
+					bot.Send(tgbotapi.NewMessage(chatID, "Фильм удален 🎬"))
+				}
+
+				user.State = ""
+				continue
+			}
 
 			if text == "/random" {
 				movie, err := GetMovieFromURL(URL_RANDOM)
