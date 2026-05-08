@@ -7,19 +7,24 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+
+	"github.com/joho/godotenv"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/moritys/nosewiper/internal/db"
 )
 
 const (
-	KP_TOKEN     = "66XDW7D-CT0MF9Z-GZB7XYF-65WAXFN"
-	TG_BOT_TOKEN = "8664604930:AAHIlnf3I1wsJzEfSAM3V0d9w0H6cBjVVJY"
-
 	URL_RANDOM    = "https://api.poiskkino.dev/v1.4/movie/random"
 	URL_GET_MOVIE = "https://api.poiskkino.dev/v1.4/movie/"
+)
+
+var (
+	TGToken string
+	KPToken string
 )
 
 type Movie struct {
@@ -40,7 +45,7 @@ type UserState struct {
 
 func GetMovieFromURL(url string) (*Movie, error) {
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("X-API-KEY", KP_TOKEN)
+	req.Header.Set("X-API-KEY", KPToken)
 
 	q := req.URL.Query()
 	q.Add("notNullFields", "name")
@@ -62,7 +67,7 @@ func GetMovieFromURL(url string) (*Movie, error) {
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	movie := &Movie{}
@@ -168,15 +173,58 @@ func GetUserMovies(chatID int64) ([]int, error) {
 	return movies, nil
 }
 
+func sendMovie(bot *tgbotapi.BotAPI, chatID int64, movie *Movie) {
+	text := fmt.Sprintf(
+		"*%s*\n`Рейтинг: %.1f`\n\n*Жанр:* %s\n_(%s, %d)_\n----\n%s",
+		movie.Name,
+		movie.Rating,
+		movie.Genres,
+		movie.Countries,
+		movie.Year,
+		movie.Description,
+	)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💿 Добавить", fmt.Sprintf("add_random %d", movie.ID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🎲 Ещё фильм", "more_random"),
+		),
+	)
+
+	if len(text) > 1024 {
+		bot.Send(tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster)))
+
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = keyboard
+		bot.Send(msg)
+	} else {
+		msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster))
+		msg.Caption = text
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = keyboard
+		bot.Send(msg)
+	}
+}
+
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Ошибка загрузки .env")
+	}
+
+	TGToken = os.Getenv("TG_BOT_TOKEN")
+	KPToken = os.Getenv("KP_TOKEN")
 	users := make(map[int64]*UserState)
 
-	err := db.InitDB()
+	err = db.InitDB()
 	if err != nil {
 		log.Panic(err)
 	}
 
-	bot, err := tgbotapi.NewBotAPI(TG_BOT_TOKEN)
+	bot, err := tgbotapi.NewBotAPI(TGToken)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -260,7 +308,7 @@ func main() {
 				parts := strings.Split(link, "/")
 				if len(parts) < 2 {
 					bot.Send(tgbotapi.NewMessage(
-						chatID, 
+						chatID,
 						"❌ Это не похоже на ссылку с Кинопоиска\n\nПопробуй ещё раз или нажми /cancel",
 					))
 					continue
@@ -270,7 +318,7 @@ func main() {
 				movieID, err := strconv.Atoi(movieIDStr)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(
-						chatID, 
+						chatID,
 						"❌ Не удалось извлечь ID\nПопробуй ещё раз или /cancel",
 					))
 					continue
@@ -322,58 +370,27 @@ func main() {
 			}
 
 			if text == "/random" {
+				bot.Send(tgbotapi.NewMessage(chatID, "Ищу 🔍"))
+
 				movie, err := GetMovieFromURL(URL_RANDOM)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
 					continue
 				}
 
-				msgText := fmt.Sprintf(
-					"*%s*\n`Рейтинг: %.1f`\n\n*Жанр:* %s\n_(%s, %d)_\n----\n%s",
-					movie.Name,
-					movie.Rating,
-					movie.Genres,
-					movie.Countries,
-					movie.Year,
-					movie.Description,
-				)
-
-				button := tgbotapi.NewInlineKeyboardButtonData(
-					"💿 Добавить в коллекцию",
-					fmt.Sprintf("add_random %d", movie.ID),
-				)
-
-				keyboard := tgbotapi.NewInlineKeyboardMarkup(
-					tgbotapi.NewInlineKeyboardRow(button),
-				)
-
-				if len(msgText) > 1024 {
-					bot.Send(tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster)))
-
-					msg := tgbotapi.NewMessage(chatID, msgText)
-					msg.ParseMode = "Markdown"
-					msg.ReplyMarkup = keyboard
-					bot.Send(msg)
-				} else {
-					msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(movie.Poster))
-					msg.Caption = msgText
-					msg.ParseMode = "Markdown"
-					msg.ReplyMarkup = keyboard
-
-					bot.Send(msg)
-				}
+				sendMovie(bot, chatID, movie)
 			}
 
 			if text == "/wisechoice" {
 				movies, err := GetUserMovies(chatID)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка БД"))
-					return
+					continue
 				}
 
 				if len(movies) == 0 {
 					bot.Send(tgbotapi.NewMessage(chatID, "В коллекции нет фильмов 😔"))
-					return
+					continue
 				}
 
 				randomIndex := rand.Intn(len(movies))
@@ -382,7 +399,7 @@ func main() {
 				movie, err := GetMovieFromURL(fmt.Sprintf(URL_GET_MOVIE+"%d", movieID))
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
-					return
+					continue
 				}
 
 				button := tgbotapi.NewInlineKeyboardButtonData(
@@ -404,18 +421,22 @@ func main() {
 			data := update.CallbackQuery.Data
 
 			parts := strings.Split(data, " ")
-			if len(parts) < 2 {
-				return
-			}
+
 			action := parts[0]
-			movieID, _ := strconv.Atoi(parts[1])
+
+			var movieID int
+
+			if len(parts) > 1 {
+				movieID, _ = strconv.Atoi(parts[1])
+			}
+
 			chatID := update.CallbackQuery.Message.Chat.ID
 
 			if action == "add_random" {
 				err := AddMovie(chatID, movieID)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже есть в коллекции"))
-					return
+					continue
 				}
 
 				bot.Send(tgbotapi.NewMessage(chatID, "Фильм добавлен в коллекцию 🎬"))
@@ -425,10 +446,20 @@ func main() {
 				err := DeleteMovie(chatID, movieID)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(chatID, "Ошибка удаления"))
-					return
+					continue
 				}
 
 				bot.Send(tgbotapi.NewMessage(chatID, "Фильм удалён из коллекции 🎬"))
+			}
+
+			if action == "more_random" {
+				movie, err := GetMovieFromURL(URL_RANDOM)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(chatID, "Не удалось найти фильм 😢"))
+					continue
+				}
+
+				sendMovie(bot, chatID, movie)
 			}
 
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
