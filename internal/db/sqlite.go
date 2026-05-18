@@ -15,6 +15,19 @@ func InitDB() error {
 		return err
 	}
 
+	movieTable := `
+	CREATE TABLE IF NOT EXISTS movies (
+		id INTEGER PRIMARY KEY,
+		name TEXT,
+		year INTEGER,
+		description TEXT,
+		poster TEXT,
+		rating REAL,
+		countries TEXT,
+		genres TEXT
+	);
+	`
+
 	createTable := `
 	CREATE TABLE IF NOT EXISTS user_movies (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,6 +36,10 @@ func InitDB() error {
 		UNIQUE(chat_id, movie_id)
 	);`
 
+	_, err = DB.Exec(movieTable)
+	if err != nil {
+		return err
+	}
 	_, err = DB.Exec(createTable)
 	return err
 }

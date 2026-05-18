@@ -165,6 +165,21 @@ func HandleMessage(
 				return
 			}
 
+			movie, err := api.GetMovieFromURL(
+				fmt.Sprintf(URL_GET_MOVIE+"%d", movieID),
+				kpToken,
+			)
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(chatID, "Не удалось получить фильм"))
+				return
+			}
+
+			err = db.SaveMovie(movie)
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(chatID, "Ошибка сохранения фильма"))
+				return
+			}
+
 			err = db.AddMovie(chatID, movieID)
 			if err != nil {
 				bot.Send(tgbotapi.NewMessage(chatID, "Фильм уже добавлен"))
@@ -225,17 +240,28 @@ func HandleMessage(
 			}
 
 			if len(movies) == 0 {
-				bot.Send(tgbotapi.NewMessage(chatID, "В коллекции нет фильмов 😔"))
+				bot.Send(tgbotapi.NewMessage(chatID, "В коллекции нет фильмов ☹️"))
 				return
 			}
 
 			randomIndex := rand.Intn(len(movies))
 			movieID := movies[randomIndex]
 
-			movie, err := api.GetMovieFromURL(fmt.Sprintf(URL_GET_MOVIE+"%d", movieID), kpToken)
+			movie, err := db.GetMovieByID(movieID)
+			if err == nil && movie != nil {
+				SendMovie(bot, chatID, movie, "collection")
+				return
+			}
+
+			movie, err = api.GetMovieFromURL(fmt.Sprintf(URL_GET_MOVIE+"%d", movieID), kpToken)
 			if err != nil {
 				bot.Send(tgbotapi.NewMessage(chatID, "Ошибка API"))
 				return
+			}
+
+			err = db.SaveMovie(movie)
+			if err != nil {
+				fmt.Println("Ошибка кеширования:", err)
 			}
 
 			SendMovie(bot, chatID, movie, "collection")

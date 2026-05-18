@@ -37,7 +37,7 @@ func main() {
 
 	bot.Debug = true
 
-	log.Printf("Авторизован как %s", bot.Self.UserName)
+	log.Printf("Авторизован как %s\n", bot.Self.UserName)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
