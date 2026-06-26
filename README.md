@@ -1,1 +1,3 @@
-# WiseChoisBotGo
+# Nosewiper bot
+
+## 🐚
